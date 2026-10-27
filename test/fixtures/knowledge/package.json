@@ -1,0 +1,6 @@
+{
+  "name": "plan-knowledge-test-fixture",
+  "private": true,
+  "type": "module",
+  "exports": "./index.js"
+}

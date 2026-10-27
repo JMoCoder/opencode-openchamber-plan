@@ -1,0 +1,39 @@
+{
+  "name": "opencode-openchamber-plan",
+  "version": "1.0.0",
+  "description": "A narrow OpenCode V2 Plan-mode adapter for OpenChamber Project Knowledge Plans.",
+  "type": "module",
+  "exports": "./index.js",
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "node test/integration.mjs",
+    "pack:check": "node scripts/check-package.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "author": "Jiamo (https://github.com/JMoCoder)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JMoCoder/opencode-openchamber-plan.git"
+  },
+  "homepage": "https://github.com/JMoCoder/opencode-openchamber-plan#readme",
+  "bugs": {
+    "url": "https://github.com/JMoCoder/opencode-openchamber-plan/issues"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-v2",
+    "opencode-plugin",
+    "openchamber",
+    "plan",
+    "project-knowledge"
+  ]
+}
