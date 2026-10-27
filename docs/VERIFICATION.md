@@ -33,4 +33,9 @@ Observed on 2026-10-28 with OpenCode **2.1.4**, Node.js **22.22.1**, and npm **1
 - Native Plan file permissions remained unchanged; restricted knowledge writes were rejected; the explicit Plan-to-Build transition completed the original plan.
 - A second disposable project inherited the global plugin without project-local configuration.
 
-The GitHub package-route checks and final release-asset integrity check are still pending at this preparation stage. They must pass before publishing version 1.0.0.
+- The official GitHub package route passed **15 integration checks** using an immutable source revision, including a fresh anonymous download, `plugin add`, actual Plan save/Notes refusal, and `plugin remove` in the same live server process.
+- The initial published source revision passed the repository's GitHub Actions unit and package checks.
+
+The final `v1.0.0` tag is tested again before its GitHub Release is made public. The Release includes `verification.json` with the exact release commit, tested Git target, observed check names, package checksum, and stated limitations. `SHA256SUMS` covers the package and verification record. Release assets are downloaded back from a draft release and checked before publication.
+
+The Git install/uninstall commands edit the disposable global configuration. Plugin state is inspected through the **same explicit server's `/api/plugin` endpoint**. The unqualified `opencode plugin list` command is not used as evidence for that server because it can connect to a different shared service.

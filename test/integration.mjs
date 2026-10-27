@@ -343,16 +343,26 @@ try {
     Object.assign(config, JSON.parse(await readFile(configFile, 'utf8')))
     assert.ok(config.plugins.includes(gitTarget), 'official add persisted the Git package target')
     await expectLifecycle(true)
-    await command(binary, ['plugin', 'list'])
     const gitPlugins = await api('GET', '/api/plugin')
     await writeFile(path.join(root, 'git-plugins.json'), JSON.stringify(gitPlugins, null, 2))
     const installed = gitPlugins.data.find(({ id }) => id === pluginID)
     assert.ok(installed)
+    assert.equal(installed.source.type, 'package')
+    assert.equal(installed.source.target, gitTarget)
     check('official plugin add hot-installs the Git package target', { target: gitTarget, plugin: installed })
+    const remoteCalls = await turn(activeSession, [
+      { tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'plan', body: '# Git package probe\n\n## Steps\n- [ ] verified installed artifact\n' } },
+      { tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'note', body: 'must be blocked by the Git-installed guard' } },
+    ])
+    assert.equal(remoteCalls[0].state.status, 'completed')
+    denied(remoteCalls[1])
+    check('the Git-installed artifact permits Plans and rejects Notes')
     await command(binary, ['plugin', 'remove', gitTarget])
     Object.assign(config, JSON.parse(await readFile(configFile, 'utf8')))
     assert.ok(!config.plugins.includes(gitTarget), 'official remove persisted uninstall')
     await expectLifecycle(false)
+    const removedCalls = await turn(activeSession, [{ tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'note', body: 'disposable Git unload probe' } }])
+    assert.equal(removedCalls[0].state.status, 'completed')
     check('official plugin remove hot-unloads the Git package target')
   }
 
@@ -370,11 +380,6 @@ try {
     await new Promise((resolve) => child.exitCode !== null ? resolve() : child.once('exit', resolve))
   }
   await new Promise((resolve) => fixtureServer.close(resolve))
-  // The plugin CLI may have started an additional service in this disposable home.
-  if (gitTarget) {
-    assert.ok(env.HOME.startsWith(root + path.sep))
-    try { await command(binary, ['service', 'stop'], projectA, 15_000) } catch {}
-  }
   const redact = (text) => password ? text.replaceAll(password, '[redacted]') : text
   await writeFile(path.join(root, 'server.log'), redact(log))
   await writeFile(path.join(root, 'commands.json'), redact(JSON.stringify(commands, null, 2)))
