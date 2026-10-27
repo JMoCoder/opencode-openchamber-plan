@@ -3,3 +3,5 @@ artifacts/
 coverage/
 *.tgz
 .DS_Store
+.agent/
+.agents/
