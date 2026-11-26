@@ -1,6 +1,6 @@
 {
   "name": "opencode-openchamber-plan",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A narrow OpenCode V2 Plan-mode adapter for OpenChamber Project Knowledge Plans.",
   "type": "module",
   "exports": "./index.js",
