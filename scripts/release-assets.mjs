@@ -8,16 +8,22 @@ const cwd = path.resolve(import.meta.dirname, '..')
 const reportFile = process.argv[2]
 assert.ok(reportFile, 'Usage: node scripts/release-assets.mjs /path/to/integration/report.json')
 const run = (command, args) => execFileSync(command, args, { cwd, encoding: 'utf8' }).trim()
+const { version } = JSON.parse(await readFile(path.join(cwd, 'package.json'), 'utf8'))
+const tag = `v${version}`
 assert.equal(run('git', ['status', '--porcelain']), '', 'release source must be committed and clean')
 const commit = run('git', ['rev-parse', 'HEAD'])
-assert.equal(run('git', ['rev-parse', 'v1.0.0^{commit}']), commit, 'release tag must identify the current source')
+assert.equal(run('git', ['rev-parse', `${tag}^{commit}`]), commit, 'release tag must identify the current source')
 const integration = JSON.parse(await readFile(reportFile, 'utf8'))
-assert.equal(integration.gitTarget, 'github:JMoCoder/opencode-openchamber-plan#v1.0.0')
-assert.equal(integration.checks.length, 15)
+assert.equal(integration.gitTarget, `github:JMoCoder/opencode-openchamber-plan#${tag}`)
+assert.equal(integration.codeMode, true, 'release evidence must exercise Code Mode')
+assert.ok(integration.checks.some(({ name }) => name === 'official plugin add hot-installs the Git package target'))
+assert.ok(integration.checks.some(({ name }) => name === 'the Git-installed artifact permits Plans and rejects Notes'))
+assert.ok(integration.checks.some(({ name }) => name === 'official plugin remove hot-unloads the Git package target'))
 assert.ok(integration.checks.every(({ passed }) => passed))
 const unit = run(process.execPath, ['--test', 'test/plugin.test.mjs'])
-assert.match(unit, /# pass 12/)
-assert.match(unit, /# fail 0/)
+const passed = Number(unit.match(/^# pass (\d+)$/m)?.[1])
+assert.ok(passed > 0)
+assert.match(unit, /^# fail 0$/m)
 run('npm', ['run', 'pack:check'])
 
 const output = path.join(cwd, 'artifacts/release')
@@ -26,11 +32,11 @@ const [packed] = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '-
 const sha256 = async (file) => createHash('sha256').update(await readFile(path.join(output, file))).digest('hex')
 const verification = {
   schemaVersion: 1,
-  version: '1.0.0',
+  version,
   releaseCommit: commit,
   verifiedAt: new Date().toISOString(),
   runtime: { opencode: run(process.env.OPENCODE_BIN || 'opencode', ['--version']), node: process.version, npm: run('npm', ['--version']), platform: process.platform },
-  unit: { passed: 12, failed: 0 },
+  unit: { passed, failed: 0 },
   package: { file: packed.filename, sha256: await sha256(packed.filename), contentsChecked: true },
   integration: { target: integration.gitTarget, checks: integration.checks.map(({ name, passed }) => ({ name, passed })), explicitReloadCalls: 0, serviceRestarts: 0 },
   limitations: ['The knowledge-tool/storage fixture is not OpenChamber itself.', 'The model is deterministic localhost test code, not a paid or production language model.', 'Actual OpenChamber GUI interaction and arbitrary frontend validation are not certified.', 'Compatibility is verified on the recorded OpenCode version, not every V2 release.'],

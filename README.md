@@ -12,8 +12,8 @@ This plugin adapts that specific native reminder on outgoing model requests and 
 
 ## Requirements and compatibility
 
-- **OpenCode V2**, with the server plugin hooks and native Plan reminder verified on **2.1.4**. V1 is not supported. Other V2 versions are not automatically certified.
-- **OpenChamber** connected to the session and exposing `openchamber_knowledge`, with Project Knowledge enabled.
+- **OpenCode 2.4.2** and **OpenChamber 2.8.0** are the target pair for 1.0.1. OpenChamber must expose `openchamber_knowledge` in the session. The adapter recognizes both Code Mode and direct knowledge tools.
+- The legacy wrapped Plan reminder used by OpenCode 2.1.4 is still supported. V1 is not supported. Other V2 versions are not automatically certified.
 - A user-controlled switch from Plan to Build before implementation.
 - Node.js 22 or newer to run this repository's development checks. The shipped plugin is plain JavaScript and has no runtime package dependencies or build step.
 
@@ -23,10 +23,10 @@ The native reminder is matched deliberately and narrowly. If an OpenCode upgrade
 
 ## Install from GitHub
 
-Version 1.0.0 is distributed through GitHub, **not the npm registry**. OpenCode V2 officially supports npm-compatible Git package specifications.
+The plugin is distributed through GitHub, **not the npm registry**. The examples use the `v1.0.1` tag once published. To test a PR before tagging, use the verified commit SHA in place of `v1.0.1`.
 
 ```sh
-opencode plugin add 'github:JMoCoder/opencode-openchamber-plan#v1.0.0'
+opencode plugin add 'github:JMoCoder/opencode-openchamber-plan#v1.0.1'
 opencode plugin list
 ```
 
@@ -35,7 +35,7 @@ The command adds a global package entry for the OpenCode server selected by that
 For a settings screen that accepts package specifications, enter:
 
 ```text
-github:JMoCoder/opencode-openchamber-plan#v1.0.0
+github:JMoCoder/opencode-openchamber-plan#v1.0.1
 ```
 
 If the frontend only accepts a local directory, use the clone-and-path option below. Do not substitute a GitHub webpage URL or a release tarball for a supported package specification.
@@ -48,17 +48,19 @@ Merge this entry into your existing `plugins` array; preserve unrelated entries:
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    "github:JMoCoder/opencode-openchamber-plan#v1.0.0"
+    "github:JMoCoder/opencode-openchamber-plan#v1.0.1"
   ]
 }
 ```
 
 To apply it to every project for your user, use the global `~/.config/opencode/opencode.json` or `opencode.jsonc`, not an individual project's configuration.
 
+For an upgrade, replace the old package entry with the new tag or commit. Do not keep both refs loaded under the same plugin ID.
+
 ### Local directory alternative
 
 ```sh
-git clone --branch v1.0.0 --depth 1 https://github.com/JMoCoder/opencode-openchamber-plan.git
+git clone --branch v1.0.1 --depth 1 https://github.com/JMoCoder/opencode-openchamber-plan.git
 ```
 
 Add the **directory**, not `index.js`, to the intended configuration or local-path plugin settings:
@@ -80,14 +82,14 @@ Do not run both adapters. Remove the old entry, move its directory **outside** t
 
 ## What changes in Plan mode
 
-- The recognized native reminder is adapted only when the active agent is `plan` and the OpenChamber knowledge tool is available.
+- The recognized native reminder is adapted only when the active agent is `plan` and the current tool catalog exposes the OpenChamber knowledge tool. Agent switches and catalog updates are respected.
 - Native plan files remain restricted to the original native directory and still require an explicit user request.
 - Project Knowledge plans must use the knowledge API. The agent is instructed to list existing plans, read the original file, and update the same plan ID with the full Markdown body and exact original text in `expected`.
 - Explicit `projectId` or `directory` overrides are rejected for knowledge writes. OpenChamber resolves the project from the calling session.
 - Writing Notes or Todos, deleting knowledge, and associating a plan with another session are rejected. Revisions with a body but without a string `expected` are also rejected.
-- Read-only `knowledge.list` and `knowledge.show` remain available. Both `openchamber_knowledge` and the generic `openchamber` knowledge-action entry point are guarded.
+- Read-only `knowledge.list` and `knowledge.show` remain available. The guard checks `openchamber_knowledge` and legacy `openchamber` knowledge actions, including calls made inside `execute`.
 - Source/configuration writes and implementation remain forbidden by the Plan instructions. Existing native file-permission rules are unchanged.
-- After the user switches to Build, this plugin does not constrain Build or implement a progress tracker. Your agent instructions govern reading and updating the plan.
+- Agent Progress, subagent dispatch, session coordination, and Lead actions continue through their existing tools and permissions. Your existing agent instructions govern Build work and updates to the plan.
 
 ## Recommended global agent instructions
 
@@ -127,7 +129,7 @@ To temporarily disable the loaded plugin, append its ID control after its packag
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    "github:JMoCoder/opencode-openchamber-plan#v1.0.0",
+    "github:JMoCoder/opencode-openchamber-plan#v1.0.1",
     "-openchamber.plan-knowledge"
   ]
 }
@@ -136,7 +138,7 @@ To temporarily disable the loaded plugin, append its ID control after its packag
 Remove that negative entry to re-enable it. To uninstall a CLI-added package:
 
 ```sh
-opencode plugin remove 'github:JMoCoder/opencode-openchamber-plan#v1.0.0'
+opencode plugin remove 'github:JMoCoder/opencode-openchamber-plan#v1.0.1'
 ```
 
 For a manually configured local path, remove its configuration entry. Removing a configuration entry does not delete your saved plans or remove your `AGENTS.md` rules. Those rules can conflict with native Plan restrictions again if you keep using Project Knowledge after uninstalling the adapter.
@@ -159,9 +161,9 @@ npm run test:integration
 
 No `npm install` is needed for the unit or package checks. The integration harness requires an installed OpenCode V2 binary (`opencode` by default, or `OPENCODE_BIN=/path/to/opencode`) and uses a disposable home/database, a deterministic localhost model, and an original test-only knowledge-tool fixture. It does not use paid models, your credentials, your real plans, or your running OpenChamber service.
 
-The harness checks a packed-and-extracted artifact through an explicitly configured local directory, automatic config reload, disable/re-enable, unload/reinstall, unchanged native Plan file permissions, guarded writes, and the Plan-to-Build transition. A Git package target can additionally be tested with `PLUGIN_SPEC=github:owner/repository#commit npm run test:integration`; this intentionally downloads that target through the official plugin command.
+The harness checks the packed plugin in Code Mode by default, including configuration reload, guarded writes, adjacent tool routing, and mode switches. Set `PLAN_TEST_DIRECT_TOOLS=1` to exercise the direct knowledge tools. Add `PLUGIN_SPEC=github:owner/repository#commit` to test installation of that exact Git package through the official plugin command.
 
-The fixture is not OpenChamber itself and does not certify every frontend or language model's behavior. See the source repository's [verification notes](https://github.com/JMoCoder/opencode-openchamber-plan/blob/v1.0.0/docs/VERIFICATION.md) for the release's actual evidence and limitations.
+The fixture does not certify the OpenChamber GUI or every model's behavior. See the repository's [verification notes](https://github.com/JMoCoder/opencode-openchamber-plan/blob/main/docs/VERIFICATION.md) for evidence and limitations.
 
 ## References
 

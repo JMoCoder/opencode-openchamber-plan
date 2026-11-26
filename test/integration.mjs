@@ -18,6 +18,7 @@ const projectB = path.join(root, 'project-b')
 const fixture = path.join(repository, 'test/fixtures/knowledge')
 const binary = process.env.OPENCODE_BIN || 'opencode'
 const gitTarget = process.env.PLUGIN_SPEC
+const codeMode = process.env.PLAN_TEST_DIRECT_TOOLS !== '1'
 const pluginID = 'openchamber.plan-knowledge'
 const marker = "calling session's own Project Knowledge Plans"
 const nativeMarker = 'write them only in:'
@@ -47,6 +48,7 @@ const inheritedKeys = new Set(['PATH', 'LANG', 'LC_ALL', 'TZ', 'HTTP_PROXY', 'HT
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => inheritedKeys.has(key)))
 Object.assign(env, {
   HOME: home,
+  OPENCODE_TEST_HOME: home,
   XDG_CONFIG_HOME: path.join(home, '.config'),
   XDG_DATA_HOME: path.join(home, '.local/share'),
   XDG_CACHE_HOME: path.join(home, '.cache'),
@@ -57,6 +59,7 @@ Object.assign(env, {
   NPM_CONFIG_USERCONFIG: path.join(root, 'empty.npmrc'),
   GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_TERMINAL_PROMPT: '0',
+  PLAN_TEST_DIRECT_TOOLS: codeMode ? '0' : '1',
   NO_PROXY: '127.0.0.1,localhost',
   no_proxy: '127.0.0.1,localhost',
 })
@@ -114,6 +117,14 @@ async function knowledge(input, sessionID) {
   return { plan }
 }
 
+const workflowSteps = [
+  { tool: 'agent_progress_report', input: { op: 'read', plan: 'disposable-plan' } },
+  { tool: 'openchamber', input: { action: 'session.list', parameters: { mine: true } } },
+  { tool: 'openchamber', input: { action: 'session.send', parameters: { sessionId: 'disposable-child', text: 'test' } } },
+  { tool: 'openchamber', input: { action: 'lead.brief' } },
+  { tool: 'openchamber', input: { action: 'lead.digest', parameters: { now: ['disposable'] } } },
+]
+
 const fixtureServer = createServer(async (req, res) => {
   try {
     const chunks = []
@@ -121,7 +132,9 @@ const fixtureServer = createServer(async (req, res) => {
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {}
     if (req.url === '/callback') {
       try {
-        const result = await knowledge(body.input, body.sessionID)
+        const workflow = workflowSteps.some(({ tool, input }) => tool === body.tool
+          && (input.action ?? input.op) === (body.input.action ?? body.input.op))
+        const result = workflow ? { routed: body.input.action ?? body.input.op } : await knowledge(body.input, body.sessionID)
         callbacks.push({ ...body, result })
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
       } catch (error) {
@@ -189,10 +202,15 @@ async function session(directory = projectA) {
   return data.id
 }
 
+function modelStep(step) {
+  if (!codeMode || (step.tool !== 'openchamber_knowledge' && step.tool !== 'openchamber')) return step
+  return { tool: 'execute', input: { code: `return await tools.${step.tool}(${JSON.stringify(step.input)})` } }
+}
+
 async function turn(sessionID, steps = [], directory = projectA) {
   const previous = await api('GET', `/api/session/${sessionID}/message?limit=100`, undefined, directory)
   const previousIDs = new Set(previous.data.map(({ id }) => id))
-  queue.push(...steps, { text: 'Disposable test turn completed.' })
+  queue.push(...steps.map(modelStep), { text: 'Disposable test turn completed.' })
   await api('POST', `/api/session/${sessionID}/prompt`, { text: 'Run only the scripted disposable verification operation.' }, directory)
   await api('POST', `/api/experimental/session/${sessionID}/wait`, undefined, directory)
   assert.equal(queue.length, 0, 'all scripted answers were consumed')
@@ -216,8 +234,22 @@ async function expectLifecycle(enabled, sessionID = activeSession) {
 }
 
 function denied(tool, pattern = /Plan Project Knowledge write denied/) {
-  assert.equal(tool.state.status, 'error', JSON.stringify(tool))
+  if (tool.name === 'execute') assert.equal(tool.state.metadata?.error, true, JSON.stringify(tool))
+  else assert.equal(tool.state.status, 'error', JSON.stringify(tool))
   assert.match(JSON.stringify(tool.state), pattern)
+}
+
+function completed(tool) {
+  assert.equal(tool.state.status, 'completed', JSON.stringify(tool))
+  assert.notEqual(tool.state.metadata?.error, true, JSON.stringify(tool))
+}
+
+async function workflowRoutes(sessionID) {
+  const from = callbacks.length
+  const routed = await turn(sessionID, workflowSteps)
+  assert.equal(routed.length, workflowSteps.length)
+  routed.forEach(completed)
+  return callbacks.slice(from).map(({ tool, input, result }) => ({ tool, input, result }))
 }
 
 try {
@@ -245,19 +277,27 @@ try {
   const permissions = (await api('GET', '/api/agent/plan')).data.permissions
   assert.ok(JSON.stringify(requests.at(-1).messages).includes(nativeMarker))
   check('baseline uses the original native Plan reminder')
+  const baselineTools = requests.at(-1).tools
+  const baselineRoutes = await workflowRoutes(activeSession)
+  assert.equal(baselineRoutes.length, workflowSteps.length)
 
   config.plugins.push(packageTarget)
   await saveConfig()
   await expectLifecycle(true)
   assert.deepEqual((await api('GET', '/api/agent/plan')).data.permissions, permissions)
+  assert.deepEqual(requests.at(-1).tools, baselineTools)
+  if (codeMode) assert.ok(JSON.stringify(requests.at(-1).messages).includes('openchamber_knowledge inside execute'))
   check('official explicit local-directory configuration hot-loads the packed artifact')
+  assert.deepEqual(await workflowRoutes(activeSession), baselineRoutes)
+  check('Agent Progress, session coordination and Lead calls reach the same routes with the adapter on and off')
 
   const body = '# Package lifecycle plan\n\n## Steps\n- [ ] Implement the approved disposable edit\n'
   const created = await turn(activeSession, [
     { tool: 'openchamber_knowledge', input: { action: 'knowledge.list' } },
     { tool: 'openchamber_knowledge', input: { action: 'knowledge.save', parameters: { kind: 'plan', body } } },
   ])
-  assert.ok(created.every((call) => call.state.status === 'completed'))
+  assert.equal(created.length, 2)
+  created.forEach(completed)
   const plan = callbacks.filter((call) => call.result?.plan).at(-1).result.plan
   assert.equal(await readFile(plan.path, 'utf8'), body)
   const revision = body.replace('approved disposable', 'approved and verified disposable')
@@ -292,7 +332,7 @@ try {
   await expectLifecycle(false)
   const before = notes.length
   const unguarded = await turn(activeSession, [{ tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'note', body: 'disposable unload probe' } }])
-  assert.equal(unguarded[0].state.status, 'completed')
+  completed(unguarded[0])
   assert.equal(notes.length, before + 1)
   check('official ID control hot-disables the adapter and disposes its tool hook')
 
@@ -314,7 +354,7 @@ try {
 
   const fresh = await session(projectB)
   const inherited = await turn(fresh, [{ tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'plan', body: '# Fresh project\n\n## Steps\n- [ ] inherited globally\n' } }], projectB)
-  assert.equal(inherited[0].state.status, 'completed')
+  completed(inherited[0])
   assert.equal(callbacks.filter((call) => call.result?.plan).at(-1).result.plan.directory, projectB)
   for (const directory of [projectA, projectB]) {
     await assert.rejects(stat(path.join(directory, 'opencode.json')), { code: 'ENOENT' })
@@ -329,11 +369,15 @@ try {
     { tool: 'edit', input: edit },
     { tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'plan', id: plan.id, body: done, expected: revision } },
   ])
-  assert.ok(built.every((call) => call.state.status === 'completed'), JSON.stringify(built))
+  assert.equal(built.length, 3)
+  built.forEach(completed)
   assert.equal(await readFile(source, 'utf8'), 'implemented\n')
   assert.equal(await readFile(plan.path, 'utf8'), done)
   check('explicit Plan-to-Build switch edits source and completes the same plan')
   await api('POST', `/api/session/${activeSession}/agent`, { agent: 'plan' })
+  const reselected = await turn(activeSession, [{ tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'plan', id: plan.id, body: done, expected: done } }])
+  completed(reselected[0])
+  check('returning to Plan keeps the same plan writable')
 
   if (gitTarget) {
     config.plugins = [fixture]
@@ -354,7 +398,7 @@ try {
       { tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'plan', body: '# Git package probe\n\n## Steps\n- [ ] verified installed artifact\n' } },
       { tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'note', body: 'must be blocked by the Git-installed guard' } },
     ])
-    assert.equal(remoteCalls[0].state.status, 'completed')
+    completed(remoteCalls[0])
     denied(remoteCalls[1])
     check('the Git-installed artifact permits Plans and rejects Notes')
     await command(binary, ['plugin', 'remove', gitTarget])
@@ -362,7 +406,7 @@ try {
     assert.ok(!config.plugins.includes(gitTarget), 'official remove persisted uninstall')
     await expectLifecycle(false)
     const removedCalls = await turn(activeSession, [{ tool: 'openchamber_knowledge', input: { action: 'knowledge.save', kind: 'note', body: 'disposable Git unload probe' } }])
-    assert.equal(removedCalls[0].state.status, 'completed')
+    completed(removedCalls[0])
     check('official plugin remove hot-unloads the Git package target')
   }
 
@@ -383,7 +427,7 @@ try {
   const redact = (text) => password ? text.replaceAll(password, '[redacted]') : text
   await writeFile(path.join(root, 'server.log'), redact(log))
   await writeFile(path.join(root, 'commands.json'), redact(JSON.stringify(commands, null, 2)))
-  await writeFile(path.join(root, 'report.json'), JSON.stringify({ checks, root, gitTarget: gitTarget ?? null, requests: requests.length, callbacks: callbacks.length }, null, 2))
+  await writeFile(path.join(root, 'report.json'), JSON.stringify({ checks, root, gitTarget: gitTarget ?? null, codeMode, requests: requests.length, callbacks: callbacks.length }, null, 2))
   await writeFile(path.join(root, 'model-requests.json'), JSON.stringify(requests, null, 2))
   console.log(`Artifacts: ${root}`)
 }

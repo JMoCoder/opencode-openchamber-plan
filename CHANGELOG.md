@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file.
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-26
+
+### Fixed
+
+- Recognize OpenCode 2.4.2's native Plan agent instructions, including when a session switches back to Plan.
+- Support OpenChamber 2.8.0's Code Mode knowledge tool and apply the existing Plan write guard to the inner call.
+- Preserve the legacy wrapped reminder and direct tool routes. Agent Progress, subagent and session coordination, Lead actions, and native Plan file permissions keep their existing behavior.
+
 ## [1.0.0] - 2026-10-28
 
 ### Added
@@ -15,4 +23,5 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - English installation, OpenChamber dependency, global instruction, compatibility, and removal documentation.
 - Unit tests, package-content checks, and an isolated real-OpenCode lifecycle test harness.
 
+[1.0.1]: https://github.com/JMoCoder/opencode-openchamber-plan/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/JMoCoder/opencode-openchamber-plan/releases/tag/v1.0.0
